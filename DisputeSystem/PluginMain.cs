@@ -1,0 +1,288 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Drawing;
+using Terraria;
+using Hooks;
+using TShockAPI;
+using TShockAPI.DB;
+using System.ComponentModel;
+using System.IO;
+using System.Net;
+
+namespace DisputeSystem
+{
+    [APIVersion(1, 11)]
+    public class DisputeSystem : TerrariaPlugin
+    {
+        public static Config Config { get; set; }
+        internal static string ConfigPath { get { return Path.Combine(TShock.SavePath, @"DisputeSystem\DisputeConfig.json"); } }
+        public static string Banned = "";
+        public static string StandardDispute = "";
+        public static List<Player> Players = new List<Player>();
+        public static DateTime lastupdate;
+        public override string Name
+        {
+            get { return "Dispute System"; }
+        }
+
+        public override string Author
+        {
+            get { return "Spectrewiz"; }
+        }
+
+        public override string Description
+        {
+            get { return "Banned players can file disputes against their bans"; }
+        }
+
+        public override Version Version
+        {
+            get { return new Version(0, 9, 0); }
+        }
+
+        public override void Initialize()
+        {
+            GameHooks.Update += OnUpdate;
+            GameHooks.Initialize += OnInitialize;
+            NetHooks.GreetPlayer += OnGreetPlayer;
+            ServerHooks.Leave += OnLeave;
+            ServerHooks.Chat += OnChat;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                GameHooks.Update -= OnUpdate;
+                GameHooks.Initialize -= OnInitialize;
+                NetHooks.GreetPlayer -= OnGreetPlayer;
+                ServerHooks.Leave -= OnLeave;
+                ServerHooks.Chat -= OnChat;
+            }
+            base.Dispose(disposing);
+        }
+
+        public DisputeSystem(Main game)
+            : base(game)
+        {
+            Config = new Config();
+            Order = -1;
+        }
+
+        public void OnInitialize()
+        {
+            bool dis = false;
+
+            foreach (Group group in TShock.Groups.groups)
+            {
+                if (group.Name != "superadmin")
+                {
+                    if (group.HasPermission("say"))
+                        dis = true;
+                }
+            }
+
+            List<string> permlist = new List<string>();
+            if (!dis)
+                permlist.Add("Dispute");
+            TShock.Groups.AddPermissions("trustedadmin", permlist);
+
+            Commands.ChatCommands.Add(new Command("Dispute", Ban, "dban"));
+            Commands.ChatCommands.Add(new Command(Dispute, "dispute"));
+            Banned = Path.Combine(TShock.SavePath, @"DisputeSystem\Banned.txt");
+            StandardDispute = Path.Combine(TShock.SavePath, @"DisputeSystem\StandardDispute.txt");
+
+            if (!Directory.Exists(Path.Combine(TShock.SavePath, "DisputeSystem")))
+                Directory.CreateDirectory(Path.Combine(TShock.SavePath, "DisputeSystem"));
+            try
+            {
+                if (File.Exists(ConfigPath))
+                    Config = Config.Read(ConfigPath);
+                Config.Write(ConfigPath);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Error in Dispute System config file");
+                Console.ResetColor();
+                Log.Error("-------- Config Exception in DisputeSystem Config file (DisputeConfig.json) --------");
+                Log.Error(ex.ToString());
+                Log.Error("------------------------------------ Error End ------------------------------------");
+            }
+            try
+            {
+                if (!File.Exists(StandardDispute))
+                {
+                    StreamWriter writer = new StreamWriter(StandardDispute, true);
+                    string dispute = new WebClient().DownloadString("https://github.com/Spectrewiz/Ticket-System/raw/master/README.txt");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Error in Dispute System StandardDispute.txt file");
+                Console.ResetColor();
+                Log.Error("------ txt Exception in DisputeSystem StandardDispute.txt file (DisputeConfig.json) ------");
+                Log.Error(ex.ToString());
+                Log.Error("--------------------------------------- Error End ---------------------------------------");
+            }
+            lastupdate = DateTime.Now;
+        }
+
+        public void OnUpdate()
+        {
+            if ((DateTime.Now - lastupdate).TotalSeconds >= 5)
+            {
+                lastupdate = DateTime.Now;
+                lock (Players)
+                {
+                    foreach (Player player in Players)
+                    {
+                        if (player.GetBan() == Player.Banned.banned)
+                            player.TSPlayer.Disable();
+                    }
+                }
+            }
+        }
+
+        public void OnGreetPlayer(int who, HandledEventArgs e)
+        {
+            lock (Players)
+                Players.Add(new Player(who));
+            string name = TShock.Players[who].Name.ToLower();
+            string line;
+            var ListedPlayer = Player.GetPlayerByName(name);
+            if (File.Exists(Banned))
+            {
+                using (StreamReader reader = new StreamReader(Banned))
+                {
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (String.Compare(line, name) == 0)
+                        {
+                            ListedPlayer.Ban(Player.Banned.banned);
+                            ListedPlayer.TSPlayer.Teleport((int)TShock.Warps.FindWarp(Config.Warp).WarpPos.X, (int)TShock.Warps.FindWarp(Config.Warp).WarpPos.Y);
+                        }
+                    }
+                }
+            }
+        }
+
+        public void OnLeave(int ply)
+        {
+            lock (Players)
+            {
+                for (int i = 0; i < Players.Count; i++)
+                {
+                    if (Players[i].Index == ply)
+                    {
+                        Players.RemoveAt(i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        public void OnChat(messageBuffer msg, int ply, string text, HandledEventArgs e)
+        {
+            string name = TShock.Players[ply].Name.ToLower();
+            var ListedPlayer = Player.GetPlayerByName(name);
+            if (ListedPlayer.GetBan() == Player.Banned.banned)
+            {
+                if (text.Trim().StartsWith("/"))
+                {
+                    string[] textsplit = text.Trim().ToLower().Split(' ');
+                    if (textsplit[0] == "/dispute")
+                    {
+                        return;
+                    }
+                    else
+                    {
+                        TShock.Players[ply].SendMessage("Banned people cannot execute commands.", Color.Red);
+                        TShock.Players[ply].SendMessage("If you wish to dispute your ban, type \"/dispute\".", Color.Red);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+                else
+                {
+                    TShock.Players[ply].SendMessage("Banned people cannot talk.", Color.Red);
+                    TShock.Players[ply].SendMessage("If you wish to dispute your ban, type \"/dispute\".", Color.Red);
+                    e.Handled = true;
+                    return;
+                }
+            }
+            return;
+        }
+
+        public static void Ban(CommandArgs args)
+        {
+            if (args.Parameters.Count < 1)
+            {
+                args.Player.SendMessage("Syntax: /dban <playername>", 30, 144, 255);
+                args.Player.SendMessage("This toggles whether or not the player is banned.", 135, 206, 255);
+            }
+            else
+            {
+                var player = TShock.Utils.FindPlayer(args.Parameters[0]);
+                if (player.Count == 0)
+                {
+                    args.Player.SendMessage("Invalid player!", Color.Red);
+                    return;
+                }
+                else if (player.Count > 1)
+                {
+                    args.Player.SendMessage(string.Format("More than one ({0}) player matched!", player.Count), Color.Red);
+                    return;
+                }
+                var ListedPlayer = Player.GetPlayerByName(player[0].Name);
+                if (ListedPlayer.GetBan() == Player.Banned.free)
+                {
+                    try
+                    {
+                        ListedPlayer.Ban(Player.Banned.banned);
+                        ListedPlayer.TSPlayer.Teleport((int)TShock.Warps.FindWarp(Config.Warp).WarpPos.X, (int)TShock.Warps.FindWarp(Config.Warp).WarpPos.Y);
+                        using (StreamWriter writer = new StreamWriter(Banned))
+                        {
+                            writer.WriteLine(player[0].Name.ToLower());
+                        }
+                    }
+                    catch (Exception e) { Log.Error(e.Message); args.Player.SendMessage("Error, check logs for details.", Color.Red); }
+                    finally { args.Player.SendMessage("Player " + player[0].Name + " is banned!", 30, 144, 255); ListedPlayer.TSPlayer.SendMessage("You have been banned by " + args.Player.Name + ". To dispute your ban, type \"/dispute\"", Color.Red); }
+                }
+                else
+                {
+                    try
+                    {
+                        ListedPlayer.Ban(Player.Banned.free);
+                        ListedPlayer.TSPlayer.Teleport(Main.spawnTileX, Main.spawnTileY);
+                        string line = null;
+                        string line_to_delete = args.Parameters[0];
+
+                        StreamReader reader = new StreamReader(Banned);
+                        StreamWriter writer = new StreamWriter("tempd.txt", true);
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            if (String.Compare(line, line_to_delete, true) != 0)
+                            {
+                                writer.WriteLine(line);
+                            }
+                        }
+                        reader.Close();
+                        writer.Close();
+                        File.Delete(Banned);
+                        File.Move("tempd.txt", Banned);
+                    }
+                    catch (Exception e) { Log.Error(e.Message); }
+                    finally { args.Player.SendMessage("Player " + player[0].Name + " is unbanned!", 30, 144, 255); ListedPlayer.TSPlayer.SendMessage("You have been unbanned by " + args.Player.Name + ". In the future, play maturely.", 30, 144, 255); ListedPlayer.TSPlayer.SendMessage("If you misbehave again, it could result in a permanent ban.", Color.Red); }
+                }
+            }
+        }
+
+        public static void Dispute(CommandArgs args)
+        {
+
+        }
+    }
+}
