@@ -19,8 +19,13 @@ namespace DisputeSystem
         internal static string ConfigPath { get { return Path.Combine(TShock.SavePath, @"DisputeSystem\DisputeConfig.json"); } }
         public static string Banned = "";
         public static string StandardDispute = "";
+        public static string downloadFromUpdate;
+        public static string versionFromUpdate;
+        public static int update = 0;
+        public static string[] readStandardDispute = new string[] { "" };
         public static List<Player> Players = new List<Player>();
         public static DateTime lastupdate;
+        public static DateTime lastupdatecheck;
         public override string Name
         {
             get { return "Dispute System"; }
@@ -33,7 +38,7 @@ namespace DisputeSystem
 
         public override string Description
         {
-            get { return "Banned players can file disputes against their bans"; }
+            get { return "Banned players can file disputes against their bans."; }
         }
 
         public override Version Version
@@ -89,12 +94,15 @@ namespace DisputeSystem
             TShock.Groups.AddPermissions("trustedadmin", permlist);
 
             Commands.ChatCommands.Add(new Command("Dispute", Ban, "dban"));
-            Commands.ChatCommands.Add(new Command(Dispute, "dispute"));
+            Commands.ChatCommands.Add(new Command(Dispute, "dispute", "disputes"));
             Banned = Path.Combine(TShock.SavePath, @"DisputeSystem\Banned.txt");
             StandardDispute = Path.Combine(TShock.SavePath, @"DisputeSystem\StandardDispute.txt");
 
             if (!Directory.Exists(Path.Combine(TShock.SavePath, "DisputeSystem")))
+            {
                 Directory.CreateDirectory(Path.Combine(TShock.SavePath, "DisputeSystem"));
+                Directory.CreateDirectory(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes"));
+            }
             try
             {
                 if (File.Exists(ConfigPath))
@@ -115,17 +123,24 @@ namespace DisputeSystem
                 if (!File.Exists(StandardDispute))
                 {
                     StreamWriter writer = new StreamWriter(StandardDispute, true);
-                    string dispute = new WebClient().DownloadString("https://github.com/Spectrewiz/Ticket-System/raw/master/README.txt");
+                    readStandardDispute = new WebClient().DownloadString("https://github.com/Spectrewiz/DisputeSystem/raw/master/StandardDispute.txt").Split('\n');
+                    for (int i = 0; i < readStandardDispute.Length; i++)
+                    {
+                        writer.WriteLine(readStandardDispute[i]);
+                    }
+                    writer.Close();
                 }
+                else
+                    readStandardDispute = File.ReadAllText(StandardDispute).Split('\n');
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("Error in Dispute System StandardDispute.txt file");
+                Console.WriteLine("Error while setting up DisputeSystem StandardDispute.txt file");
                 Console.ResetColor();
-                Log.Error("------ txt Exception in DisputeSystem StandardDispute.txt file (DisputeConfig.json) ------");
+                Log.Error("-------- Web Exception in DisputeSystem StandardDispute.txt file --------");
                 Log.Error(ex.ToString());
-                Log.Error("--------------------------------------- Error End ---------------------------------------");
+                Log.Error("------------------------------- Error End -------------------------------");
             }
             lastupdate = DateTime.Now;
         }
@@ -142,6 +157,24 @@ namespace DisputeSystem
                         if (player.GetBan() == Player.Banned.banned)
                             player.TSPlayer.Disable();
                     }
+                }
+            }
+
+            if (update == 0)
+            {
+                if (UpdateChecker())
+                    update++;
+                else
+                    update--;
+            }
+            else if (update < 0)
+            {
+                if ((DateTime.Now - lastupdatecheck).TotalHours >= 3)
+                {
+                    if (UpdateChecker())
+                        update = 1;
+                    else
+                        lastupdatecheck = DateTime.Now;
                 }
             }
         }
@@ -167,6 +200,12 @@ namespace DisputeSystem
                     }
                 }
             }
+            if (TShock.Players[who].Group.Name.ToLower() == "superadmin")
+                if (update > 0)
+                {
+                    TShock.Players[who].SendMessage("Update for Dispute System available! Check log for download link.", Color.Yellow);
+                    Log.Info(string.Format("NEW VERSION: {0}  |  Download here: {1}", versionFromUpdate, downloadFromUpdate));
+                }
         }
 
         public void OnLeave(int ply)
@@ -273,6 +312,7 @@ namespace DisputeSystem
                         writer.Close();
                         File.Delete(Banned);
                         File.Move("tempd.txt", Banned);
+                        File.Delete(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes\" + ListedPlayer.TSPlayer.Name + ".txt"));
                     }
                     catch (Exception e) { Log.Error(e.Message); }
                     finally { args.Player.SendMessage("Player " + player[0].Name + " is unbanned!", 30, 144, 255); ListedPlayer.TSPlayer.SendMessage("You have been unbanned by " + args.Player.Name + ". In the future, play maturely.", 30, 144, 255); ListedPlayer.TSPlayer.SendMessage("If you misbehave again, it could result in a permanent ban.", Color.Red); }
@@ -282,7 +322,138 @@ namespace DisputeSystem
 
         public static void Dispute(CommandArgs args)
         {
+            var FindMe = Player.GetPlayerByName(args.Player.Name);
+            if (args.Parameters.Count < 1)
+            {
+                if (FindMe.GetBan() == Player.Banned.banned)
+                {
+                    for (int i = 0; i < readStandardDispute.Length; i++)
+                    {
+                        if (readStandardDispute[i].Contains("|"))
+                        {
+                            int r = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[0]);
+                            int g = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[1]);
+                            int b = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[2]);
+                            Color rbg = new Color(r, b, g);
+                            args.Player.SendMessage(readStandardDispute[i].Trim().Split('|')[0], rbg);
+                        }
+                        else
+                        {
+                            args.Player.SendMessage(readStandardDispute[i].Trim(), 30, 144, 255);
+                        }
+                    }
+                }
+                else if (args.Player.Group.HasPermission("Dispute"))
+                {
+                    args.Player.SendMessage("Syntax: /Dispute <list/read> <playername>", 30, 144, 255);
+                }
+            }
+            else
+            {
+                if (FindMe.GetBan() == Player.Banned.banned)
+                {
+                    if (args.Parameters.Count == 1 && args.Parameters[0].ToLower() == "read")
+                    {
+                        string filetext = File.ReadAllText(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes\" + args.Player.Name + @".txt"));
+                        for (int i = 0; i < filetext.Split('\n').Length; i++)
+                        {
+                            args.Player.SendMessage(filetext.Split('\n')[i], 30, 144, 255);
+                        }
+                    }
+                    else
+                    {
+                        try
+                        {
+                            string text = "";
+                            foreach (string word in args.Parameters)
+                            {
+                                text = text + word + " ";
+                            }
 
+                            StreamWriter sw = new StreamWriter(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes\" + args.Player.Name + @".txt"), true);
+                            sw.WriteLine(text.Trim());
+                            sw.Close();
+
+                            args.Player.SendMessage("Your Dispute has been updated!", 30, 144, 255);
+                        }
+                        catch (Exception e)
+                        {
+                            args.Player.SendMessage("Your dispute could not be sent, contact an administrator.", Color.Red);
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine(e.Message);
+                            Console.ResetColor();
+                            Log.Error(e.Message);
+                        }
+                    }
+                }
+                else if (args.Player.Group.HasPermission("Dispute"))
+                {
+                    switch (args.Parameters[0].ToLower())
+                    {
+                        case "list":
+                            List<string> listfilepaths = new List<string>();
+                            foreach (string filename in Directory.GetFiles(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes"), "*.txt"))
+                            {
+                                listfilepaths.Add(filename);
+                            }
+                            if (listfilepaths.Count > 0)
+                            {
+                                args.Player.SendMessage("--- List of Disputes Filed ---", 30, 144, 255);
+                                for (int i = 0; i < listfilepaths.Count; i++)
+                                {
+                                    args.Player.SendMessage(listfilepaths[i].Split('\\')[listfilepaths[i].Split('\\').Length - 1].Split('.')[0], 135, 206, 255);
+                                }
+                            }
+                            else
+                            {
+                                args.Player.SendMessage("There are no disputes filed.", Color.Red);
+                            }
+                            break;
+                        case "read":
+                            string filetext = "";
+                            try
+                            {
+                                filetext = File.ReadAllText(Path.Combine(TShock.SavePath, @"DisputeSystem\Disputes\" + args.Parameters[1] + ".txt"));
+                            }
+                            catch (Exception e) { Log.Error(e.Message); args.Player.SendMessage("Cannot find file, please type the EXACT player name.", Color.Red); return; }
+                            for (int i = 0; i < filetext.Split('\n').Length; i++)
+                            {
+                                args.Player.SendMessage(filetext.Split('\n')[i], 30, 144, 255);
+                            }
+                            break;
+                        default:
+                            args.Player.SendMessage("Syntax: /Dispute <list/read> <playername>", Color.Red);
+                            break;
+                    }
+                }
+            }
+        }
+
+        public bool UpdateChecker()
+        {
+            string raw;
+            try
+            {
+                raw = new WebClient().DownloadString("https://github.com/Spectrewiz/DisputeSystem/raw/master/README.txt");
+            }
+            catch (Exception e)
+            {
+                Log.Error(e.Message);
+                return false;
+            }
+            string[] readme = raw.Split('\n');
+            string[] download = readme[readme.Length - 1].Split('-');
+            Version version;
+            if (!Version.TryParse(readme[0], out version)) return false;
+            if (Version.CompareTo(version) >= 0) return false;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("New Dispute System version: " + readme[0].Trim());
+            Console.WriteLine("Download here: " + download[1].Trim());
+            Console.ResetColor();
+            Log.Info(string.Format("NEW VERSION: {0}  |  Download here: {1}", readme[0].Trim(), download[1].Trim()));
+            downloadFromUpdate = download[1].Trim();
+            versionFromUpdate = readme[0].Trim();
+            return true;
         }
     }
 }
