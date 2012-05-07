@@ -332,8 +332,8 @@ namespace DisputeSystem
                         if (readStandardDispute[i].Contains("|"))
                         {
                             int r = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[0]);
-                            int g = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[1]);
-                            int b = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[2]);
+                            int b = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[1]);
+                            int g = Convert.ToInt32(readStandardDispute[i].Trim().Split('|')[1].Split(',')[2]);
                             Color rbg = new Color(r, b, g);
                             args.Player.SendMessage(readStandardDispute[i].Trim().Split('|')[0], rbg);
                         }

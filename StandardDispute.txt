@@ -1,7 +1,7 @@
 You have been banned.|255,0,0
 -Note: You will have to write to your dispute file by typing "/dispute <info>"|30,144,255
 -Note: You have to maturely represent yourself. If you curse at staff members, or if we cannot understand what you are telling us,|30,144,255
-  Your dispute will be ignored.|30,144,255
+-  your dispute will be ignored.|30,144,255
 You will need to dispute your ban by following these terms:|30,144,255
 1) Admin who banned you|135,206,255
 2) Your side of the story|135,206,255
